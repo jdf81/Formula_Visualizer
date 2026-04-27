@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
+  <title>Field — Formula Visualizer</title>
+
+  <!-- PWA / iOS web app -->
+  <link rel="manifest" href="manifest.webmanifest" />
+  <meta name="theme-color" content="#0a0910" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Field" />
+  <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png" />
+  <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+  <style>
+    :root {
+      --safe-top: env(safe-area-inset-top, 0px);
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+      --safe-left: env(safe-area-inset-left, 0px);
+      --safe-right: env(safe-area-inset-right, 0px);
+    }
+    html, body {
+      margin: 0; padding: 0;
+      background: #0a0910;
+      font-family: "Space Grotesk", system-ui, sans-serif;
+      min-height: 100vh;
+      min-height: 100dvh;
+      overscroll-behavior: none;
+      -webkit-tap-highlight-color: transparent;
+      -webkit-user-select: none;
+      user-select: none;
+      touch-action: manipulation;
+    }
+    body {
+      width: 100vw;
+      overflow-x: hidden;
+    }
+    * { box-sizing: border-box; }
+    button { font-family: inherit; }
+    input, textarea { -webkit-user-select: text; user-select: text; font-size: 16px; /* prevent iOS zoom on focus */ }
+
+    /* Standalone (Add-to-Home-Screen) full-bleed app mode */
+    .app-shell {
+      min-height: 100vh;
+      min-height: 100dvh;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+    /* Showcase mode (desktop / browser) wraps the variation in a phone frame */
+    .showcase {
+      min-height: 100vh;
+      min-height: 100dvh;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 32px 20px 40px;
+      gap: 24px;
+    }
+    /* Mobile (any portrait <= 600px wide) → standalone-style full screen even in browser */
+    @media (max-width: 600px) {
+      .showcase { padding: 0; gap: 0; }
+    }
+  </style>
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel" src="formula-engine.jsx"></script>
+  <script type="text/babel" src="visualizer-core.jsx"></script>
+  <script type="text/babel" src="variation-studio.jsx"></script>
+  <script type="text/babel" src="variation-console.jsx"></script>
+  <script type="text/babel" src="variation-gallery.jsx"></script>
+
+  <script type="text/babel">
+    const { useEffect, useState } = React;
+
+    const VARIANTS = [
+      { id: 'studio',  label: 'Studio',  sub: 'Polished',  accent: '#ff7a3d', Component: StudioVariation },
+      { id: 'console', label: 'Console', sub: 'Terminal',  accent: '#7ec4d6', Component: ConsoleVariation },
+      { id: 'gallery', label: 'Gallery', sub: 'Immersive', accent: '#a78bfa', Component: GalleryVariation },
+    ];
+
+    // Detect: PWA standalone, or narrow viewport → run in fullscreen app mode.
+    function useAppMode() {
+      const compute = () => {
+        const standalone =
+          window.matchMedia && window.matchMedia('(display-mode: standalone)').matches ||
+          window.navigator.standalone === true;
+        const narrow = window.innerWidth <= 600;
+        return standalone || narrow ? 'app' : 'showcase';
+      };
+      const [mode, setMode] = useState(compute);
+      useEffect(() => {
+        const onResize = () => setMode(compute());
+        window.addEventListener('resize', onResize);
+        const mql = window.matchMedia('(display-mode: standalone)');
+        mql.addEventListener && mql.addEventListener('change', onResize);
+        return () => {
+          window.removeEventListener('resize', onResize);
+          mql.removeEventListener && mql.removeEventListener('change', onResize);
+        };
+      }, []);
+      return mode;
+    }
+
+    function PhoneFrame({ children }) {
+      return (
+        <div style={{
+          width: 390, height: 780,
+          background: '#000',
+          borderRadius: 44,
+          padding: 6,
+          boxShadow: '0 30px 90px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.06), inset 0 0 0 1.5px rgba(255,255,255,0.08)',
+          position: 'relative',
+          flexShrink: 0,
+        }}>
+          <div style={{ width: '100%', height: '100%', borderRadius: 38, overflow: 'hidden', position: 'relative', background: '#000' }}>
+            {children}
+            <div style={{
+              position: 'absolute', top: 8, left: '50%', transform: 'translateX(-50%)',
+              width: 110, height: 28, background: '#000', borderRadius: 16,
+              zIndex: 100, pointerEvents: 'none',
+            }} />
+          </div>
+        </div>
+      );
+    }
+
+    function Switcher({ value, onChange, compact }) {
+      return (
+        <div style={{
+          display: 'inline-flex', padding: 4, gap: 4,
+          background: 'rgba(255,255,255,0.04)',
+          border: '1px solid rgba(255,255,255,0.08)',
+          borderRadius: 14,
+          backdropFilter: 'blur(10px)',
+          WebkitBackdropFilter: 'blur(10px)',
+        }}>
+          {VARIANTS.map((v) => {
+            const active = v.id === value;
+            return (
+              <button
+                key={v.id}
+                onClick={() => onChange(v.id)}
+                style={{
+                  display: 'flex', flexDirection: compact ? 'row' : 'column', alignItems: compact ? 'center' : 'flex-start',
+                  gap: compact ? 6 : 0,
+                  padding: compact ? '6px 12px' : '8px 16px',
+                  background: active ? 'rgba(255,255,255,0.08)' : 'transparent',
+                  border: active ? `1px solid ${v.accent}66` : '1px solid transparent',
+                  borderRadius: 10,
+                  color: active ? '#fff' : 'rgba(255,255,255,0.55)',
+                  cursor: 'pointer',
+                  transition: 'all .18s',
+                  minWidth: compact ? 0 : 96,
+                }}
+              >
+                <span style={{
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  fontSize: compact ? 12 : 13, fontWeight: 600,
+                }}>
+                  <span style={{
+                    width: 6, height: 6, borderRadius: 3,
+                    background: v.accent,
+                    boxShadow: active ? `0 0 8px ${v.accent}` : 'none',
+                  }} />
+                  {v.label}
+                </span>
+                {!compact && (
+                  <span style={{
+                    fontSize: 9, fontFamily: 'JetBrains Mono, monospace',
+                    letterSpacing: '0.16em', textTransform: 'uppercase',
+                    color: active ? `${v.accent}` : 'rgba(255,255,255,0.35)',
+                    marginTop: 2,
+                  }}>
+                    {v.sub}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      );
+    }
+
+    function App() {
+      const mode = useAppMode();
+      const [variant, setVariant] = useState(() => {
+        const saved = localStorage.getItem('fv-variant');
+        return saved && VARIANTS.find((v) => v.id === saved) ? saved : 'studio';
+      });
+      const [switcherOpen, setSwitcherOpen] = useState(false);
+
+      useEffect(() => { localStorage.setItem('fv-variant', variant); }, [variant]);
+
+      const Active = VARIANTS.find((v) => v.id === variant)?.Component || StudioVariation;
+      const accent = VARIANTS.find((v) => v.id === variant)?.accent;
+
+      // ─── App mode: full-bleed, no phone frame, safe-area aware ──────────
+      if (mode === 'app') {
+        return (
+          <div style={{
+            position: 'fixed', inset: 0,
+            background: '#000',
+            display: 'flex', flexDirection: 'column',
+            paddingTop: 'var(--safe-top)',
+            paddingBottom: 'var(--safe-bottom)',
+            paddingLeft: 'var(--safe-left)',
+            paddingRight: 'var(--safe-right)',
+          }}>
+            <div key={variant} style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+              <Active />
+            </div>
+
+            {/* Floating interface switcher button (top right, below safe area) */}
+            <button
+              onClick={() => setSwitcherOpen((v) => !v)}
+              style={{
+                position: 'absolute',
+                top: 'calc(var(--safe-top) + 12px)',
+                right: 'calc(var(--safe-right) + 12px)',
+                width: 38, height: 38, borderRadius: 19,
+                background: 'rgba(0,0,0,0.55)',
+                backdropFilter: 'blur(14px)',
+                WebkitBackdropFilter: 'blur(14px)',
+                border: `1px solid ${accent}55`,
+                color: '#fff', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                zIndex: 200,
+              }}
+              aria-label="Switch interface"
+            >
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                {VARIANTS.map((v) => (
+                  <span key={v.id} style={{
+                    width: 14, height: 3, borderRadius: 1.5,
+                    background: v.id === variant ? v.accent : 'rgba(255,255,255,0.4)',
+                  }} />
+                ))}
+              </div>
+            </button>
+
+            {switcherOpen && (
+              <>
+                <div
+                  onClick={() => setSwitcherOpen(false)}
+                  style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 195 }}
+                />
+                <div style={{
+                  position: 'absolute',
+                  top: 'calc(var(--safe-top) + 60px)',
+                  right: 'calc(var(--safe-right) + 12px)',
+                  zIndex: 210,
+                  background: 'rgba(15,12,22,0.95)',
+                  backdropFilter: 'blur(20px)',
+                  WebkitBackdropFilter: 'blur(20px)',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  borderRadius: 14,
+                  padding: 6,
+                  display: 'flex', flexDirection: 'column', gap: 2,
+                  minWidth: 180,
+                  boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+                }}>
+                  {VARIANTS.map((v) => {
+                    const active = v.id === variant;
+                    return (
+                      <button
+                        key={v.id}
+                        onClick={() => { setVariant(v.id); setSwitcherOpen(false); }}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 10,
+                          padding: '10px 12px',
+                          background: active ? `${v.accent}1a` : 'transparent',
+                          border: 'none',
+                          borderRadius: 10,
+                          color: '#fff',
+                          cursor: 'pointer',
+                          textAlign: 'left',
+                          fontFamily: 'inherit',
+                        }}
+                      >
+                        <span style={{
+                          width: 8, height: 8, borderRadius: 4,
+                          background: v.accent,
+                          boxShadow: active ? `0 0 10px ${v.accent}` : 'none',
+                        }} />
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 14, fontWeight: 600 }}>{v.label}</div>
+                          <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', fontFamily: 'JetBrains Mono, monospace', letterSpacing: '0.1em', textTransform: 'uppercase', marginTop: 1 }}>{v.sub}</div>
+                        </div>
+                        {active && (
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={v.accent} strokeWidth="3"><path d="M5 12l5 5L20 7" /></svg>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+          </div>
+        );
+      }
+
+      // ─── Showcase mode (desktop browsers) ──────────────────────────────
+      return (
+        <div className="showcase" style={{
+          background: `radial-gradient(ellipse at 50% 0%, ${accent}1a, transparent 60%), #0a0910`,
+          transition: 'background .4s',
+        }}>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{
+                width: 12, height: 12, borderRadius: '50%',
+                background: `linear-gradient(135deg, ${accent}, ${accent}99)`,
+                boxShadow: `0 0 16px ${accent}80`,
+              }} />
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#fff', letterSpacing: '0.24em' }}>FIELD</div>
+              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', fontFamily: 'JetBrains Mono, monospace', letterSpacing: '0.05em' }}>
+                formula visualizer
+              </div>
+            </div>
+            <Switcher value={variant} onChange={setVariant} />
+          </div>
+
+          <PhoneFrame key={variant}>
+            <Active />
+          </PhoneFrame>
+
+          <div style={{
+            fontSize: 11, color: 'rgba(255,255,255,0.35)',
+            fontFamily: 'JetBrains Mono, monospace', letterSpacing: '0.08em', textAlign: 'center',
+            maxWidth: 480,
+          }}>
+            switch interfaces above · open on iOS and tap Share → Add to Home Screen to install
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
