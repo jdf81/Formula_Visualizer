@@ -2,7 +2,7 @@
   "name": "Field — Formula Visualizer",
   "short_name": "Field",
   "description": "Mathematical formulas as repeating patterns",
-  "start_url": "./Formula%20Visualizer.html",
+  "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
